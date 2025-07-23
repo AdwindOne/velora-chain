@@ -1,0 +1,19 @@
+[package]
+name = "velora-executor"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+# Velora Crates
+velora-core = { path = "../core" }
+
+# EVM
+revm = { workspace = true }
+
+# Database
+rocksdb = { workspace = true }
+
+# Error Handling
+anyhow = { workspace = true }
+thiserror = { workspace = true }

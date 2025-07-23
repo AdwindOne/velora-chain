@@ -1,0 +1,16 @@
+[package]
+name = "velora-consensus"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+# Velora Crates
+velora-core = { path = "../core" }
+
+# Async
+async-trait = { workspace = true }
+
+# Error Handling
+anyhow = { workspace = true }
+thiserror = { workspace = true }

@@ -1,8 +1,10 @@
 use crate::types::{Address, BlockNumber, H256, U256, Bloom};
 use crate::transaction::Transaction;
+use rlp::{RlpStream, Encodable, Decodable, Rlp};
 use serde::{Deserialize, Serialize};
+use sha3::{Keccak256, Digest};
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Encodable, Decodable)]
 pub struct BlockHeader {
     pub parent_hash: H256,
     pub ommers_hash: H256,
@@ -19,6 +21,14 @@ pub struct BlockHeader {
     pub extra_data: Vec<u8>,
     pub mix_hash: H256,
     pub nonce: H256,
+}
+
+impl BlockHeader {
+    pub fn hash(&self) -> H256 {
+        let mut stream = RlpStream::new();
+        self.encode(&mut stream);
+        H256::from_slice(Keccak256::digest(stream.as_raw()).as_slice())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -38,7 +48,6 @@ impl Block {
     }
 
     pub fn hash(&self) -> H256 {
-        // In a real implementation, this would be a proper RLP hash
-        H256::random()
+        self.header.hash()
     }
 }

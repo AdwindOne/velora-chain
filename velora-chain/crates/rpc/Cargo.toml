@@ -1,0 +1,20 @@
+[package]
+name = "velora-rpc"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+# Velora Crates
+velora-core = { path = "../core" }
+
+# RPC
+jsonrpsee = { workspace = true, features = ["full"] }
+
+# Async
+tokio = { workspace = true, features = ["full"] }
+async-trait = { workspace = true }
+
+# Error Handling
+anyhow = { workspace = true }
+thiserror = { workspace = true }
