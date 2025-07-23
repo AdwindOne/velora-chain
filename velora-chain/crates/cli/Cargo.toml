@@ -1,0 +1,23 @@
+[package]
+name = "velora-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+[dependencies]
+# Velora Crates
+velora-core = { path = "../core" }
+velora-consensus = { path = "../consensus" }
+velora-executor = { path = "../executor" }
+velora-network = { path = "../network" }
+velora-rpc = { path = "../rpc" }
+velora-utils = { path = "../utils" }
+# Async
+tokio = { workspace = true, features = ["full"] }
+# CLI
+clap = { workspace = true, features = ["derive"] }
+# Logging
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+# Error Handling
+anyhow = { workspace = true }
+thiserror = { workspace = true }

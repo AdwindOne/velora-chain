@@ -1,0 +1,73 @@
+[workspace]
+members = [
+    "crates/cli",
+    "crates/consensus",
+    "crates/core",
+    "crates/executor",
+    "crates/network",
+    "crates/rpc",
+    "crates/utils",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/velora-chain/velora-chain"
+description = "Velora-chain: A modular, high-performance Rust blockchain for EVM-compatible smart contracts."
+
+[workspace.dependencies]
+# Velora Crates
+velora-core = { path = "./crates/core" }
+velora-consensus = { path = "./crates/consensus" }
+velora-executor = { path = "./crates/executor" }
+velora-network = { path = "./crates/network" }
+velora-rpc = { path = "./crates/rpc" }
+velora-utils = { path = "./crates/utils" }
+
+# Async
+tokio = { version = "1", features = ["full"] }
+async-trait = "0.1"
+futures = "0.3"
+
+# EVM
+revm = "8.0"
+revmc = "0.4"
+ethers = "2.0"
+
+# Concurrency & Parallelism
+rayon = "1.5"
+crossbeam = "0.8"
+
+# Database
+rocksdb = "0.21"
+lmdb-rkv = "0.14"
+
+# P2P Networking
+libp2p = { version = "0.52", features = ["full"] }
+
+# RPC
+jsonrpsee = { version = "0.20", features = ["full"] }
+
+# Serialization / Deserialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "0.8"
+yaml-rust = "0.4"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = "0.3"
+
+# CLI
+clap = { version = "4.0", features = ["derive"] }
+
+# Error Handling
+thiserror = "1.0"
+anyhow = "1.0"
+
+# Others
+hex = "0.4"
+rlp = "0.5"
+sha3 = "0.10"
+parking_lot = "0.12"
