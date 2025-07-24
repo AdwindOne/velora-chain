@@ -1,4 +1,4 @@
-use crate::types::{Nonce, U256, H256};
+use crate::types::{Nonce, H256, U256};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]

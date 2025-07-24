@@ -1,9 +1,9 @@
 use crate::Consensus;
+use anyhow::{anyhow, Result};
 use async_trait::async_trait;
-use velora_core::{Block, BlockHeader, Address};
-use anyhow::{Result, anyhow};
 use std::collections::HashSet;
 use std::time::{SystemTime, UNIX_EPOCH};
+use velora_core::{Address, Block, BlockHeader};
 
 const MIN_BLOCK_PERIOD_SECS: u64 = 2;
 

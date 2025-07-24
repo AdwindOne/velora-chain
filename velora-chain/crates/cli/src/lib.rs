@@ -1,21 +1,21 @@
+use anyhow::Result;
 use clap::Parser;
-use velora_consensus::poa::Poa;
-use velora_consensus::Consensus;
-use velora_executor::Executor;
-use velora_network::Network;
-use velora_rpc::{run_server, RpcContext};
-use std::path::PathBuf;
+use log::{error, info, warn};
+use sha3::Digest;
+use std::fs;
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex};
 use tokio::time::{interval, Duration};
-use anyhow::Result;
+use velora_consensus::poa::Poa;
+use velora_consensus::Consensus;
 use velora_core::genesis::Genesis;
-use std::fs;
 use velora_core::types::Address;
-use velora_core::{Block, Transaction, BlockHeader};
-use log::{info, warn, error};
-use sha3::Digest;
+use velora_core::{Block, Transaction};
+use velora_executor::Executor;
+use velora_network::Network;
+use velora_rpc::{run_server, RpcContext};
 
 /// Velora-chain: A modular, high-performance Rust blockchain for EVM-compatible smart contracts.
 #[derive(Parser, Debug)]
@@ -35,19 +35,44 @@ pub enum Commands {
 
 #[derive(Parser, Debug)]
 pub struct RunArgs {
-    #[clap(long, value_name = "PATH", default_value = ".velora", help = "Path to the data directory")]
+    #[clap(
+        long,
+        value_name = "PATH",
+        default_value = ".velora",
+        help = "Path to the data directory"
+    )]
     pub datadir: PathBuf,
-    #[clap(long, value_name = "PORT", default_value = "30303", help = "P2P listening port")]
+    #[clap(
+        long,
+        value_name = "PORT",
+        default_value = "30303",
+        help = "P2P listening port"
+    )]
     pub p2p_port: u16,
-    #[clap(long, value_name = "ADDR", default_value = "127.0.0.1:8545", help = "RPC server address")]
+    #[clap(
+        long,
+        value_name = "ADDR",
+        default_value = "127.0.0.1:8545",
+        help = "RPC server address"
+    )]
     pub rpc_addr: SocketAddr,
-    #[clap(long, value_name = "MS", default_value = "5000", help = "Block production interval in milliseconds")]
+    #[clap(
+        long,
+        value_name = "MS",
+        default_value = "5000",
+        help = "Block production interval in milliseconds"
+    )]
     pub block_time: u64,
 }
 
 #[derive(Parser, Debug)]
 pub struct InitArgs {
-    #[clap(long, value_name = "PATH", default_value = ".velora", help = "Path to the data directory")]
+    #[clap(
+        long,
+        value_name = "PATH",
+        default_value = ".velora",
+        help = "Path to the data directory"
+    )]
     pub datadir: PathBuf,
     #[clap(long, value_name = "PATH", help = "Path to the genesis file")]
     pub genesis: PathBuf,
@@ -65,12 +90,18 @@ pub async fn run_node(args: RunArgs) -> Result<()> {
     let db_path = args.datadir.join("db");
 
     if !genesis_path.exists() {
-        error!("Genesis file not found at {:?}. Please run `init` first.", genesis_path);
+        error!(
+            "Genesis file not found at {genesis_path:?}. Please run `init` first."
+        );
         return Ok(());
     }
 
     let genesis: Genesis = serde_json::from_str(&fs::read_to_string(genesis_path)?)?;
-    let validators: Vec<Address> = genesis.config.poa.as_ref().map_or_else(Vec::new, |p| p.validators.clone());
+    let validators: Vec<Address> = genesis
+        .config
+        .poa
+        .as_ref()
+        .map_or_else(Vec::new, |p| p.validators.clone());
 
     let executor = Arc::new(Executor::new(&db_path)?);
     if executor.get_latest_block().is_err() {
@@ -81,16 +112,20 @@ pub async fn run_node(args: RunArgs) -> Result<()> {
     let (block_sender, mut block_receiver) = mpsc::unbounded_channel::<Block>();
     let (tx_sender, mut tx_receiver) = mpsc::unbounded_channel::<Transaction>();
 
-    let network = Arc::new(Mutex::new(Network::new(args.p2p_port, block_sender, tx_sender.clone()).await?));
+    let network = Arc::new(Mutex::new(
+        Network::new(args.p2p_port, block_sender, tx_sender.clone()).await?,
+    ));
 
     let rpc_context = Arc::new(RpcContext {
         executor: executor.clone(),
         tx_sender: tx_sender.clone(),
     });
-    let (rpc_handle, rpc_addr) = run_server(rpc_context, args.rpc_addr).await.map_err(|e| anyhow::anyhow!(e))?;
+    let (rpc_handle, rpc_addr) = run_server(rpc_context, args.rpc_addr)
+        .await
+        .map_err(|e| anyhow::anyhow!(e))?;
 
     info!("P2P listening on port: {}", args.p2p_port);
-    info!("RPC server listening on: {}", rpc_addr);
+    info!("RPC server listening on: {rpc_addr}");
 
     let app = Arc::new(App {
         executor: executor.clone(),
@@ -114,14 +149,14 @@ pub async fn run_node(args: RunArgs) -> Result<()> {
                 let app = app.clone();
                 tokio::spawn(async move {
                     if let Err(e) = create_and_process_block(app).await {
-                        error!("Failed to create block: {}", e);
+                        error!("Failed to create block: {e}");
                     }
                 });
             },
             Some(block) = block_receiver.recv() => {
                 info!("Received new block {} from network", block.header.number);
                 if let Err(e) = app.executor.apply_block(&block) {
-                    warn!("Failed to apply block from network: {}", e);
+                    warn!("Failed to apply block from network: {e}");
                 }
             },
             Some(tx) = tx_receiver.recv() => {

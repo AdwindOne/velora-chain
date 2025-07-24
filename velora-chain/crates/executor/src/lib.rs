@@ -1,27 +1,26 @@
+use anyhow::{anyhow, Result};
+use bincode::{deserialize, serialize};
+use ethers::types::Log as EthersLog;
+use ethers::types::{Bytes as EthersBytes, H160};
+use revm::{
+    db::{CacheDB, DatabaseRef},
+    primitives::alloy_primitives::{Uint, Address as AlloyAddress, B256},
+    primitives::{
+        AccountInfo, Address as RevmAddress, BlockEnv, Bytecode, CfgEnv, CreateScheme, Env,
+        ExecutionResult, Log, Output, TransactTo, TxEnv,
+    },
+};
+use rocksdb::{Options, TransactionDB, TransactionDBOptions, WriteBatchWithTransaction};
+use std::path::Path;
+use std::sync::Arc;
 use velora_core::{
-    account::Account,
     block::{Block, BlockHeader},
     genesis::Genesis,
     receipt::Receipt,
     transaction::Transaction,
-    types::{Address as CoreAddress, H256, U256, Bloom},
+    types::{Bloom, H256, U256},
 };
-use revm::{
-    db::{CacheDB, DatabaseRef, EmptyDB},
-    primitives::{AccountInfo, Bytecode, CfgEnv, Env, ExecutionResult, Log, Output, TransactTo, TxEnv, BlockEnv, Address as RevmAddress, CreateScheme},
-    primitives::alloy_primitives::{B160, B256, Uint},
-    Database,
-};
-use rocksdb::{TransactionDB, TransactionDBOptions, Options, WriteBatch, WriteBatchWithTransaction};
-use anyhow::{Result, anyhow};
-use std::sync::Arc;
-use std::path::Path;
-use bincode::{serialize, deserialize};
-use log::{info, warn};
-use ethers::types::Log as EthersLog;
-use serde::{Serialize, Deserialize};
 use zerocopy::IntoBytes;
-use ethers::types::{H160, Bytes as EthersBytes};
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 struct AccountInfoSerde {
@@ -80,7 +79,10 @@ impl Executor {
     }
 
     pub fn get_latest_block(&self) -> Result<Block> {
-        let block_bytes = self.db.get(LATEST_BLOCK_KEY)?.ok_or_else(|| anyhow!("Latest block not found"))?;
+        let block_bytes = self
+            .db
+            .get(LATEST_BLOCK_KEY)?
+            .ok_or_else(|| anyhow!("Latest block not found"))?;
         Ok(deserialize(&block_bytes)?)
     }
 
@@ -113,13 +115,18 @@ impl Executor {
     }
 
     pub fn apply_block(&self, block: &Block) -> Result<()> {
-        let parent = self.get_block_by_hash(block.header.parent_hash)?.ok_or_else(|| anyhow!("Parent block not found"))?;
-        let mut db = CacheDB::new(self.as_ref());
+        let _parent = self
+            .get_block_by_hash(block.header.parent_hash)?
+            .ok_or_else(|| anyhow!("Parent block not found"))?;
+        let mut db = CacheDB::new(self);
         let mut cumulative_gas_used = U256::zero();
         let mut receipts = Vec::new();
 
         for (tx_index, tx) in block.transactions.iter().enumerate() {
-            let mut evm = revm::Evm::builder().with_db(&mut db).with_env(Box::new(self.build_env(&block.header, tx))).build();
+            let mut evm = revm::Evm::builder()
+                .with_db(&mut db)
+                .with_env(Box::new(self.build_env(&block.header, tx)))
+                .build();
 
             let result = evm.transact_commit().map_err(|e| anyhow!(e.to_string()))?;
             let gas_used = result.gas_used();
@@ -127,14 +134,22 @@ impl Executor {
 
             let (status, contract_address) = match &result {
                 ExecutionResult::Success { output, .. } => {
-                    let addr = if let Output::Create(_, Some(addr)) = output { Some(*addr) } else { None };
+                    let addr = if let Output::Create(_, Some(addr)) = output {
+                        Some(*addr)
+                    } else {
+                        None
+                    };
                     (1, addr)
                 }
                 ExecutionResult::Revert { .. } => (0, None),
                 ExecutionResult::Halt { .. } => (0, None),
             };
 
-            let logs = result.logs().iter().map(|log| convert_log((*log).clone())).collect::<Vec<_>>();
+            let logs = result
+                .logs()
+                .iter()
+                .map(|log| convert_log((*log).clone()))
+                .collect::<Vec<_>>();
             let logs_bloom = logs.iter().fold(Bloom::default(), |mut bloom, log| {
                 use ethbloom::Input;
                 bloom.accrue(Input::Raw(log.address.as_bytes()));
@@ -162,8 +177,14 @@ impl Executor {
         let mut batch = WriteBatchWithTransaction::<true>::default();
         let block_bytes = serialize(block)?;
         batch.put(LATEST_BLOCK_KEY, &block_bytes);
-        batch.put([BLOCK_NUMBER_KEY_PREFIX, &block.header.number.to_be_bytes()].concat(), block.hash().as_bytes());
-        batch.put([BLOCK_HASH_KEY_PREFIX, block.hash().as_bytes()].concat(), &block_bytes);
+        batch.put(
+            [BLOCK_NUMBER_KEY_PREFIX, &block.header.number.to_be_bytes()].concat(),
+            block.hash().as_bytes(),
+        );
+        batch.put(
+            [BLOCK_HASH_KEY_PREFIX, block.hash().as_bytes()].concat(),
+            &block_bytes,
+        );
 
         let receipts_cf = self.db.cf_handle(RECEIPTS_CF).unwrap();
         for receipt in receipts {
@@ -195,7 +216,8 @@ impl Executor {
                 code: None,
             };
             let info_serde = AccountInfoSerde::from(&account_info);
-            self.db.put_cf(accounts_cf, addr.as_bytes(), serialize(&info_serde)?)?;
+            self.db
+                .put_cf(accounts_cf, addr.as_bytes(), serialize(&info_serde)?)?;
         }
 
         let genesis_block = Block {
@@ -210,8 +232,14 @@ impl Executor {
 
         let block_bytes = serialize(&genesis_block)?;
         self.db.put(LATEST_BLOCK_KEY, &block_bytes)?;
-        self.db.put([BLOCK_NUMBER_KEY_PREFIX, &0u64.to_be_bytes()].concat(), genesis_block.hash().as_bytes())?;
-        self.db.put([BLOCK_HASH_KEY_PREFIX, genesis_block.hash().as_bytes()].concat(), &block_bytes)?;
+        self.db.put(
+            [BLOCK_NUMBER_KEY_PREFIX, &0u64.to_be_bytes()].concat(),
+            genesis_block.hash().as_bytes(),
+        )?;
+        self.db.put(
+            [BLOCK_HASH_KEY_PREFIX, genesis_block.hash().as_bytes()].concat(),
+            &block_bytes,
+        )?;
 
         Ok(())
     }
@@ -221,16 +249,19 @@ impl Executor {
             cfg: CfgEnv::default(),
             block: BlockEnv {
                 number: u256_to_revm_u256(header.number.into()),
-                coinbase: RevmAddress(B160::from_slice(header.beneficiary.as_bytes())),
+                coinbase: RevmAddress(AlloyAddress::from_slice(header.beneficiary.as_bytes()).0),
                 timestamp: u256_to_revm_u256(header.timestamp.into()),
                 gas_limit: u256_to_revm_u256(header.gas_limit.into()),
                 ..Default::default()
             },
             tx: TxEnv {
-                caller: RevmAddress(B160::from_slice(tx.from.unwrap_or_default().as_bytes())),
+                caller: RevmAddress(AlloyAddress::from_slice(tx.from.unwrap_or_default().as_bytes()).0),
                 gas_limit: tx.gas_limit.as_u64(),
                 gas_price: u256_to_revm_u256(tx.gas_price),
-                transact_to: tx.to.map_or_else(|| TransactTo::Create(CreateScheme::Create), |addr| TransactTo::Call(RevmAddress(B160::from_slice(addr.as_bytes())))),
+                transact_to: tx.to.map_or_else(
+                    || TransactTo::Create(CreateScheme::Create),
+                    |addr| TransactTo::Call(RevmAddress(AlloyAddress::from_slice(addr.as_bytes()).0)),
+                ),
                 value: u256_to_revm_u256(tx.value),
                 data: tx.data.clone().into(),
                 nonce: Some(tx.nonce),
@@ -243,7 +274,11 @@ impl Executor {
 fn convert_log(log: Log) -> EthersLog {
     EthersLog {
         address: H160::from_slice(log.address.as_bytes()),
-        topics: log.topics().iter().map(|b| H256::from_slice(b.as_bytes())).collect(),
+        topics: log
+            .topics()
+            .iter()
+            .map(|b| H256::from_slice(b.as_bytes()))
+            .collect(),
         data: EthersBytes::from(log.data.data.to_vec()),
         block_hash: None,
         block_number: None,
@@ -261,10 +296,10 @@ fn u256_to_revm_u256(val: U256) -> Uint<256, 4> {
     val.to_big_endian(&mut bytes);
     Uint::<256, 4>::from_be_bytes(bytes)
 }
+#[allow(dead_code)]
 fn revm_u256_to_u256(val: Uint<256, 4>) -> U256 {
     U256::from_big_endian(&val.to_be_bytes::<32>())
 }
-
 
 impl AsRef<Executor> for Executor {
     fn as_ref(&self) -> &Executor {
@@ -277,7 +312,9 @@ impl DatabaseRef for Executor {
     fn basic_ref(&self, address: RevmAddress) -> Result<Option<AccountInfo>, Self::Error> {
         let accounts_cf = self.db.cf_handle(ACCOUNTS_CF).unwrap();
         match self.db.get_cf(accounts_cf, address.as_bytes())? {
-            Some(bytes) => Ok(Some(AccountInfo::from(deserialize::<AccountInfoSerde>(&bytes)?))),
+            Some(bytes) => Ok(Some(AccountInfo::from(deserialize::<AccountInfoSerde>(
+                &bytes,
+            )?))),
             None => Ok(None),
         }
     }
@@ -288,13 +325,19 @@ impl DatabaseRef for Executor {
             None => Ok(Bytecode::default()),
         }
     }
-    fn storage_ref(&self, address: RevmAddress, index: Uint<256, 4>) -> Result<Uint<256, 4>, Self::Error> {
+    fn storage_ref(
+        &self,
+        address: RevmAddress,
+        index: Uint<256, 4>,
+    ) -> Result<Uint<256, 4>, Self::Error> {
         let storage_cf = self.db.cf_handle(STORAGE_CF).unwrap();
         let mut key = [0u8; 64];
         key[..32].copy_from_slice(address.as_bytes());
         key[32..].copy_from_slice(&index.to_be_bytes::<32>());
-        match self.db.get_cf(storage_cf, &key)? {
-            Some(bytes) => Ok(Uint::<256, 4>::from_be_bytes::<32>(bytes.try_into().unwrap())),
+        match self.db.get_cf(storage_cf, key)? {
+            Some(bytes) => Ok(Uint::<256, 4>::from_be_bytes::<32>(
+                bytes.try_into().unwrap(),
+            )),
             None => Ok(Uint::<256, 4>::ZERO),
         }
     }

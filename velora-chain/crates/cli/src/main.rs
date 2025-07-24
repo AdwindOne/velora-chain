@@ -1,10 +1,12 @@
-use velora_cli::{Args, Commands, run_node, init_node};
-use clap::Parser;
 use anyhow::Result;
+use clap::Parser;
+use velora_cli::{init_node, run_node, Args, Commands};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    env_logger::builder().filter_level(log::LevelFilter::Info).init();
+    env_logger::builder()
+        .filter_level(log::LevelFilter::Info)
+        .init();
     let args = Args::parse();
 
     match args.command {

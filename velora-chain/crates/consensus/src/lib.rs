@@ -1,6 +1,6 @@
+use anyhow::Result;
 use async_trait::async_trait;
 use velora_core::{Block, BlockHeader};
-use anyhow::Result;
 
 #[async_trait]
 pub trait Consensus: Send + Sync {

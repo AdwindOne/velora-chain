@@ -1,6 +1,6 @@
 use crate::types::{Address, Bloom, H256, U256};
-use serde::{Deserialize, Serialize};
 use ethers::types::Log;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct Receipt {

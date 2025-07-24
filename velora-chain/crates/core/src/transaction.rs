@@ -1,8 +1,8 @@
-use crate::types::{Address, U256, H256, Nonce};
-use rlp::{RlpStream, Encodable, Decodable, Rlp, DecoderError};
-use serde::{Deserialize, Serialize};
-use sha3::{Keccak256, Digest};
+use crate::types::{Address, Nonce, H256, U256};
 use ethers::types::Transaction as EthersTransaction;
+use rlp::{Decodable, DecoderError, Encodable, Rlp, RlpStream};
+use serde::{Deserialize, Serialize};
+use sha3::{Digest, Keccak256};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Transaction {
