@@ -2,10 +2,11 @@ use crate::Consensus;
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use std::collections::HashSet;
+#[allow(unused_imports)]
 use std::time::{SystemTime, UNIX_EPOCH};
 use velora_core::{Address, Block, BlockHeader};
 
-const MIN_BLOCK_PERIOD_SECS: u64 = 2;
+const MIN_BLOCK_PERIOD_SECS: u64 = 3;
 
 pub struct Poa {
     validators: HashSet<Address>,
@@ -32,13 +33,7 @@ impl Consensus for Poa {
     }
 
     async fn prepare_header(&self, parent: &BlockHeader) -> Result<BlockHeader> {
-        let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
-        let timestamp = if now <= parent.timestamp {
-            parent.timestamp + MIN_BLOCK_PERIOD_SECS
-        } else {
-            now
-        };
-
+        let timestamp = parent.timestamp + MIN_BLOCK_PERIOD_SECS;
         Ok(BlockHeader {
             parent_hash: parent.hash(),
             number: parent.number + 1,

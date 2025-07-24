@@ -53,6 +53,18 @@ pub trait EthApi {
     async fn get_transaction_by_hash(&self, tx_hash: H256) -> Result<Option<serde_json::Value>, ErrorObjectOwned>;
     #[method(name = "eth_getBlockByHash")]
     async fn get_block_by_hash(&self, block_hash: H256, full_tx: bool) -> Result<Option<serde_json::Value>, ErrorObjectOwned>;
+    #[method(name = "eth_chainId")]
+    async fn chain_id(&self) -> Result<String, ErrorObjectOwned>;
+    #[method(name = "web3_clientVersion")]
+    async fn client_version(&self) -> Result<String, ErrorObjectOwned>;
+    #[method(name = "net_version")]
+    async fn net_version(&self) -> Result<String, ErrorObjectOwned>;
+    #[method(name = "eth_gasPrice")]
+    async fn gas_price(&self) -> Result<String, ErrorObjectOwned>;
+    #[method(name = "eth_estimateGas")]
+    async fn estimate_gas(&self, tx: TransactionRequest, block_number: Option<String>) -> Result<String, ErrorObjectOwned>;
+    #[method(name = "eth_accounts")]
+    async fn accounts(&self) -> Result<Vec<Address>, ErrorObjectOwned>;
 }
 
 pub struct RpcContext {
@@ -221,6 +233,41 @@ impl EthApiServer for VeloraEthApi {
         } else {
             Ok(None)
         }
+    }
+    async fn chain_id(&self) -> Result<String, ErrorObjectOwned> {
+        // 直接读取 genesis.json
+        let genesis_path = std::path::Path::new("configs/devnet/genesis.json");
+        let genesis: serde_json::Value = std::fs::read_to_string(genesis_path)
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .ok_or_else(|| rpc_err("Failed to read genesis.json for chain_id"))?;
+        let chain_id = genesis["config"]["chainId"].as_u64().ok_or_else(|| rpc_err("chainId not found in genesis.json"))?;
+        Ok(format!("0x{:x}", chain_id))
+    }
+    async fn client_version(&self) -> Result<String, ErrorObjectOwned> {
+        Ok("velora/0.1.0".to_string())
+    }
+    async fn net_version(&self) -> Result<String, ErrorObjectOwned> {
+        // 直接读取 genesis.json
+        let genesis_path = std::path::Path::new("configs/devnet/genesis.json");
+        let genesis: serde_json::Value = std::fs::read_to_string(genesis_path)
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .ok_or_else(|| rpc_err("Failed to read genesis.json for net_version"))?;
+        let chain_id = genesis["config"]["chainId"].as_u64().ok_or_else(|| rpc_err("chainId not found in genesis.json"))?;
+        Ok(chain_id.to_string())
+    }
+    async fn gas_price(&self) -> Result<String, ErrorObjectOwned> {
+        // 返回固定 gas price
+        Ok(format!("0x{:x}", 1_000_000_000u64)) // 1 gwei
+    }
+    async fn estimate_gas(&self, _tx: TransactionRequest, _block_number: Option<String>) -> Result<String, ErrorObjectOwned> {
+        // 返回固定 gas 21000
+        Ok(format!("0x{:x}", 21_000u64))
+    }
+    async fn accounts(&self) -> Result<Vec<Address>, ErrorObjectOwned> {
+        // 不管理账户，返回空数组
+        Ok(vec![])
     }
 }
 

@@ -1,6 +1,7 @@
 use anyhow::Result;
 use clap::Parser;
-use velora_cli::{init_node, run_node, Args, Commands};
+#[allow(unused_imports)]
+use velora_cli::{init_node, run_node, Args, Commands, main_entry};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -8,11 +9,5 @@ async fn main() -> Result<()> {
         .filter_level(log::LevelFilter::Info)
         .init();
     let args = Args::parse();
-
-    match args.command {
-        Commands::Run(run_args) => run_node(run_args).await?,
-        Commands::Init(init_args) => init_node(init_args)?,
-    }
-
-    Ok(())
+    main_entry(args).await
 }

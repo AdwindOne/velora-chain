@@ -19,6 +19,8 @@ use velora_rpc::{run_server, RpcContext};
 use std::collections::HashMap;
 use revm::db::DatabaseRef;
 use revm::primitives::alloy_primitives::Address as RevmAddress;
+use std::time::{SystemTime, UNIX_EPOCH};
+use velora_core::H256;
 
 /// Velora-chain: A modular, high-performance Rust blockchain for EVM-compatible smart contracts.
 #[derive(Parser, Debug)]
@@ -34,6 +36,8 @@ pub enum Commands {
     Run(RunArgs),
     /// Initialize the Velora node
     Init(InitArgs),
+    /// Print chain id from genesis config
+    ChainId,
 }
 
 #[derive(Parser, Debug)]
@@ -55,7 +59,7 @@ pub struct RunArgs {
     #[clap(
         long,
         value_name = "ADDR",
-        default_value = "127.0.0.1:8545",
+        default_value = "127.0.0.1:6545",
         help = "RPC server address"
     )]
     pub rpc_addr: SocketAddr,
@@ -137,24 +141,35 @@ pub async fn run_node(args: RunArgs) -> Result<()> {
         tx_pool: Arc::new(Mutex::new(HashMap::new())),
     });
 
-    let mut block_time = interval(Duration::from_millis(args.block_time));
-
     let network_handle = tokio::spawn(async move {
         let binding = network.clone();
         let mut network_locked = binding.lock().await;
         network_locked.run().await;
     });
-
+    // block_interval_secs 直接用 args.block_time（单位秒）
+    let block_interval_secs = args.block_time;
+    let mut block_time = interval(Duration::from_secs(block_interval_secs));
+    let  _block_handle: Option<tokio::task::JoinHandle<()>> = None;
     // Main event loop
     loop {
         tokio::select! {
             _ = block_time.tick() => {
-                let app = app.clone();
-                tokio::spawn(async move {
-                    if let Err(e) = create_and_process_block(app).await {
-                        error!("Failed to create block: {e}");
+                info!("Tick: producing block");
+                info!("create_and_process_block start");
+                tokio::select! {
+                    res = create_and_process_block(app.clone(), block_interval_secs) => {
+                        if let Err(e) = res {
+                            error!("Failed to create block: {e}");
+                        }
+                        info!("create_and_process_block end");
                     }
-                });
+                    _ = tokio::signal::ctrl_c() => {
+                        info!("Shutting down...");
+                        rpc_handle.stop().unwrap();
+                        network_handle.abort();
+                        break;
+                    }
+                }
             },
             Some(block) = block_receiver.recv() => {
                 info!("Received new block {} from network", block.header.number);
@@ -189,10 +204,19 @@ pub async fn run_node(args: RunArgs) -> Result<()> {
     Ok(())
 }
 
-async fn create_and_process_block(app: Arc<App>) -> Result<()> {
+#[allow(unused_variables)]
+async fn create_and_process_block(app: Arc<App>, block_interval_secs: u64) -> Result<()> {
     let parent = app.executor.get_latest_block()?;
+    info!("Tick: producing block, parent number: {}, parent hash: {:?}", parent.header.number, parent.hash());
     let mut header = app.consensus.prepare_header(&parent.header).await?;
+    // 强制修正关键字段，保证链持续递增
+    header.parent_hash = parent.hash();
+    header.number = parent.header.number + 1;
+    let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
+    header.timestamp = now;
+    info!("create_and_process_block: locking tx_pool");
     let mut pool = app.tx_pool.lock().await;
+    info!("create_and_process_block: locked tx_pool");
     let mut block_txs = Vec::new();
     // 只打包 nonce 连续的交易
     for (from, txs) in pool.iter_mut() {
@@ -215,15 +239,39 @@ async fn create_and_process_block(app: Arc<App>) -> Result<()> {
         txs.drain(0..i);
     }
     header.transactions_root = calculate_transactions_root(&block_txs);
+    header.state_root = velora_core::H256::zero();
+    header.receipts_root = velora_core::H256::zero();
+    header.logs_bloom = velora_core::Bloom::default();
+    header.difficulty = velora_core::U256::one();
+    header.gas_limit = 30_000_000;
+    header.gas_used = 0;
+    header.mix_hash = H256::from_low_u64_be(header.timestamp);
+    header.nonce = H256::from_low_u64_be(header.number);
+    header.extra_data = header.timestamp.to_be_bytes().to_vec();
+    header.ommers_hash = velora_core::H256::zero();
     let mut block = Block {
         header,
         transactions: block_txs,
         ommers: vec![],
     };
+    info!("create_and_process_block: before finalize_block");
     app.consensus.finalize_block(&mut block).await?;
-    app.executor.apply_block(&block)?;
-    info!("Produced new block {}", block.header.number);
-    app.network.lock().await.broadcast_block(&block)?;
+    info!("create_and_process_block: after finalize_block, before apply_block");
+    info!("Applying block number: {}", block.header.number);
+    let res = app.executor.apply_block(&block);
+    match res {
+        Ok(_) => info!("Produced new block {}", block.header.number),
+        Err(e) => error!("Failed to apply block {}: {}", block.header.number, e),
+    }
+    info!("create_and_process_block: before broadcast_block");
+    let app_network = app.network.clone();
+    let block_clone = block.clone();
+    tokio::spawn(async move {
+        if let Err(e) = app_network.lock().await.broadcast_block(&block_clone) {
+            log::error!("broadcast_block error: {}", e);
+        }
+    });
+    info!("create_and_process_block end");
     Ok(())
 }
 
@@ -247,5 +295,22 @@ pub fn init_node(args: InitArgs) -> Result<()> {
     }
     fs::copy(args.genesis, args.datadir.join("genesis.json"))?;
     info!("Node initialized at: {:?}", args.datadir);
+    Ok(())
+}
+
+pub async fn main_entry(args: Args) -> Result<()> {
+    match args.command {
+        Commands::Run(run_args) => run_node(run_args).await?,
+        Commands::Init(init_args) => init_node(init_args)?,
+        Commands::ChainId => {
+            let genesis_path = std::path::Path::new("configs/devnet/genesis.json");
+            let genesis: serde_json::Value = std::fs::read_to_string(genesis_path)
+                .ok()
+                .and_then(|s| serde_json::from_str(&s).ok())
+                .ok_or_else(|| anyhow::anyhow!("Failed to read genesis.json for chain_id"))?;
+            let chain_id = genesis["config"]["chainId"].as_u64().ok_or_else(|| anyhow::anyhow!("chainId not found in genesis.json"))?;
+            println!("0x{:x}", chain_id);
+        }
+    }
     Ok(())
 }
