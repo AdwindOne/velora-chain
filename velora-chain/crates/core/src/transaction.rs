@@ -93,11 +93,19 @@ impl Transaction {
     pub fn recover_from(raw_tx: &[u8]) -> Result<Address, anyhow::Error> {
         let typed_tx: TypedTransaction = rlp::decode(raw_tx)?;
         let sighash = typed_tx.sighash();
-        let sig = Signature {
-            v: typed_tx.v().as_u64(),
-            r: *typed_tx.r(),
-            s: *typed_tx.s(),
+
+        let (v, r, s) = match &typed_tx {
+            TypedTransaction::Eip1559(tx) => (tx.v, tx.r, tx.s),
+            TypedTransaction::Legacy(tx) => (tx.v, tx.r, tx.s),
+            _ => return Err(anyhow::anyhow!("Unsupported transaction type for signature recovery")),
         };
+
+        let sig = Signature {
+            v: v.as_u64(),
+            r,
+            s,
+        };
+
         let from = sig.recover(sighash)?;
         Ok(from)
     }
