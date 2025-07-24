@@ -74,6 +74,28 @@ impl BlockHeader {
     }
 }
 
+impl Default for BlockHeader {
+    fn default() -> Self {
+        Self {
+            parent_hash: H256::default(),
+            ommers_hash: H256::default(),
+            beneficiary: Address::default(),
+            state_root: H256::default(),
+            transactions_root: H256::default(),
+            receipts_root: H256::default(),
+            logs_bloom: Bloom::default(),
+            difficulty: U256::default(),
+            number: BlockNumber::default(),
+            gas_limit: 0,
+            gas_used: 0,
+            timestamp: 0,
+            extra_data: Vec::new(),
+            mix_hash: H256::default(),
+            nonce: H256::default(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Block {
     pub header: BlockHeader,

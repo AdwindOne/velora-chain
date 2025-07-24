@@ -13,7 +13,7 @@ use libp2p::{
     Transport,
 };
 use std::time::Duration;
-use tokio::{io, select, time, sync::mpsc};
+use tokio::{select, sync::mpsc};
 use velora_core::{Block, Transaction};
 use anyhow::Result;
 use serde::{Serialize, Deserialize};
@@ -49,19 +49,20 @@ impl Network {
 
         let transport = tcp::tokio::Transport::new(tcp::Config::default().nodelay(true))
             .upgrade(upgrade::Version::V1)
-            .authenticate(noise::Config::new(&id_keys)?)
+            .authenticate(noise::Config::new(&id_keys).unwrap())
             .multiplex(yamux::Config::default())
             .boxed();
 
         let gossipsub_config = gossipsub::ConfigBuilder::default()
             .heartbeat_interval(Duration::from_secs(10))
             .validation_mode(gossipsub::ValidationMode::Strict)
-            .build()?;
+            .build()
+            .unwrap();
 
         let mut gossipsub = gossipsub::Behaviour::new(
             gossipsub::MessageAuthenticity::Signed(id_keys),
             gossipsub_config,
-        )?;
+        ).map_err(anyhow::Error::msg)?;
 
         let topic = gossipsub::IdentTopic::new("velora-chain");
         gossipsub.subscribe(&topic)?;

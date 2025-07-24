@@ -15,6 +15,7 @@ use std::fs;
 use velora_core::types::Address;
 use velora_core::{Block, Transaction, BlockHeader};
 use log::{info, warn, error};
+use sha3::Digest;
 
 /// Velora-chain: A modular, high-performance Rust blockchain for EVM-compatible smart contracts.
 #[derive(Parser, Debug)]
@@ -69,7 +70,7 @@ pub async fn run_node(args: RunArgs) -> Result<()> {
     }
 
     let genesis: Genesis = serde_json::from_str(&fs::read_to_string(genesis_path)?)?;
-    let validators: Vec<Address> = genesis.poa.as_ref().map_or_else(Vec::new, |p| p.validators.clone());
+    let validators: Vec<Address> = genesis.config.poa.as_ref().map_or_else(Vec::new, |p| p.validators.clone());
 
     let executor = Arc::new(Executor::new(&db_path)?);
     if executor.get_latest_block().is_err() {
@@ -86,7 +87,7 @@ pub async fn run_node(args: RunArgs) -> Result<()> {
         executor: executor.clone(),
         tx_sender: tx_sender.clone(),
     });
-    let (rpc_handle, rpc_addr) = run_server(rpc_context, args.rpc_addr).await?;
+    let (rpc_handle, rpc_addr) = run_server(rpc_context, args.rpc_addr).await.map_err(|e| anyhow::anyhow!(e))?;
 
     info!("P2P listening on port: {}", args.p2p_port);
     info!("RPC server listening on: {}", rpc_addr);
@@ -100,13 +101,11 @@ pub async fn run_node(args: RunArgs) -> Result<()> {
 
     let mut block_time = interval(Duration::from_millis(args.block_time));
 
-    let network_handle = {
-        let mut network_locked = network.lock().await;
-        let network_run = network_locked.run();
-        tokio::spawn(async move {
-            network_run.await;
-        })
-    };
+    let network_handle = tokio::spawn(async move {
+        let binding = network.clone();
+        let mut network_locked = binding.lock().await;
+        network_locked.run().await;
+    });
 
     // Main event loop
     loop {
