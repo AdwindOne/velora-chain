@@ -69,7 +69,7 @@ impl Decodable for BlockHeader {
 impl BlockHeader {
     pub fn hash(&self) -> H256 {
         let mut stream = RlpStream::new();
-        self.encode(&mut stream);
+        self.rlp_append(&mut stream);
         H256::from_slice(Keccak256::digest(stream.as_raw()).as_slice())
     }
 }

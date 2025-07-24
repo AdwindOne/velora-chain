@@ -2,7 +2,7 @@ use crate::types::{Address, U256, H256, Nonce};
 use rlp::{RlpStream, Encodable, Decodable, Rlp, DecoderError};
 use serde::{Deserialize, Serialize};
 use sha3::{Keccak256, Digest};
-use ethers::types::{transaction::eip2718::TypedTransaction, Signature, Eip1559TransactionRequest};
+use ethers::types::transaction::eip2718::TypedTransaction;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Transaction {
@@ -86,18 +86,14 @@ impl Transaction {
 
     pub fn hash(&self) -> H256 {
         let mut stream = RlpStream::new();
-        self.encode(&mut stream);
+        self.rlp_append(&mut stream);
         H256::from_slice(Keccak256::digest(stream.as_raw()).as_slice())
     }
 
     pub fn recover_from(raw_tx: &[u8]) -> Result<Address, anyhow::Error> {
         let typed_tx: TypedTransaction = rlp::decode(raw_tx)?;
         let sighash = typed_tx.sighash();
-        let sig = match typed_tx {
-            TypedTransaction::Eip1559(tx) => tx.signature(),
-            TypedTransaction::Legacy(tx) => tx.signature(),
-            _ => return Err(anyhow::anyhow!("Unsupported transaction type")),
-        };
+        let sig = typed_tx.signature();
         let from = sig.recover(sighash)?;
         Ok(from)
     }
