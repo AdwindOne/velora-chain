@@ -17,6 +17,9 @@ repository = "https://github.com/velora-chain/velora-chain"
 description = "Velora-chain: A modular, high-performance Rust blockchain for EVM-compatible smart contracts."
 
 [workspace.dependencies]
+# Testing
+tempfile = "3.10"
+
 # Velora Crates
 velora-core = { path = "./crates/core" }
 velora-consensus = { path = "./crates/consensus" }
