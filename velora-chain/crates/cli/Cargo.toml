@@ -6,7 +6,7 @@ license.workspace = true
 
 [lib]
 name = "velora_cli"
-path = "src/main.rs"
+path = "src/lib.rs"
 
 [[bin]]
 name = "velora"
@@ -20,15 +20,19 @@ velora-executor = { path = "../executor" }
 velora-network = { path = "../network" }
 velora-rpc = { path = "../rpc" }
 velora-utils = { path = "../utils" }
+
 # Async
 tokio = { workspace = true, features = ["full"] }
+
 # CLI
 clap = { workspace = true, features = ["derive"] }
+
 # Logging
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 log = "0.4"
 env_logger = "0.10"
+
 # Error Handling
 anyhow = { workspace = true }
 thiserror = { workspace = true }
