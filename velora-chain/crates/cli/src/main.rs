@@ -3,13 +3,16 @@ use velora_consensus::poa::Poa;
 use velora_consensus::Consensus;
 use velora_executor::Executor;
 use velora_network::Network;
-use velora_rpc::run_server;
+use velora_rpc::{run_server, RpcContext};
 use std::path::PathBuf;
 use std::net::SocketAddr;
+use std::sync::Arc;
+use tokio::sync::mpsc;
 use anyhow::Result;
 use velora_core::genesis::Genesis;
 use std::fs;
 use velora_core::types::Address;
+use velora_core::{Block, Transaction};
 
 /// Velora-chain: A modular, high-performance Rust blockchain for EVM-compatible smart contracts.
 #[derive(Parser, Debug)]
@@ -50,6 +53,7 @@ struct InitArgs {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    env_logger::init();
     let args = Args::parse();
 
     match args.command {
@@ -65,27 +69,50 @@ async fn run_node(args: RunArgs) -> Result<()> {
     let db_path = args.datadir.join("db");
 
     let genesis: Genesis = serde_json::from_str(&fs::read_to_string(genesis_path)?)?;
-    let validators: Vec<Address> = genesis.poa.map_or_else(Vec::new, |p| p.validators);
+    let validators: Vec<Address> = genesis.poa.as_ref().map_or_else(Vec::new, |p| p.validators.clone());
 
     let consensus = Poa::new(validators);
-    let executor = Executor::new(&db_path)?;
-    let mut network = Network::new(args.p2p_port).await?;
-    let (rpc_handle, rpc_addr) = run_server(args.rpc_addr).await?;
+    let executor = Arc::new(Executor::new(&db_path)?);
+    executor.apply_genesis(&genesis)?;
+
+    let (block_sender, mut block_receiver) = mpsc::unbounded_channel::<Block>();
+    let (tx_sender, mut tx_receiver) = mpsc::unbounded_channel::<Transaction>();
+
+    let mut network = Network::new(args.p2p_port, block_sender, tx_sender).await?;
+
+    let rpc_context = Arc::new(RpcContext {
+        executor: executor.clone(),
+    });
+    let (rpc_handle, rpc_addr) = run_server(rpc_context, args.rpc_addr).await?;
 
     println!("P2P listening on port: {}", args.p2p_port);
     println!("RPC server listening on: {}", rpc_addr);
 
-    tokio::spawn(async move {
+    let network_handle = tokio::spawn(async move {
         network.run().await;
     });
 
-    rpc_handle.stopped().await;
+    // Main event loop
+    loop {
+        tokio::select! {
+            Some(block) = block_receiver.recv() => {
+                // Process incoming block
+            }
+            Some(tx) = tx_receiver.recv() => {
+                // Process incoming transaction
+            }
+        }
+    }
 
     Ok(())
 }
 
 fn init_node(args: InitArgs) -> Result<()> {
     fs::create_dir_all(&args.datadir)?;
+    let db_path = args.datadir.join("db");
+    if !db_path.exists() {
+        fs::create_dir(&db_path)?;
+    }
     fs::copy(args.genesis, args.datadir.join("genesis.json"))?;
     println!("Node initialized at: {:?}", args.datadir);
     Ok(())

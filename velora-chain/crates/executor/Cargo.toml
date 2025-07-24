@@ -14,6 +14,9 @@ revm = { workspace = true }
 # Database
 rocksdb = { workspace = true }
 
+# Serialization
+bincode = "1.3"
+
 # Error Handling
 anyhow = { workspace = true }
 thiserror = { workspace = true }

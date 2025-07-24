@@ -12,12 +12,18 @@ use libp2p::{
     PeerId,
     Transport,
 };
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
 use std::time::Duration;
-use tokio::{io, select, time};
+use tokio::{io, select, time, sync::mpsc};
 use velora_core::{Block, Transaction};
 use anyhow::Result;
+use serde::{Serialize, Deserialize};
+use log::{info, warn};
+
+#[derive(Debug, Serialize, Deserialize)]
+pub enum GossipMessage {
+    NewBlock(Block),
+    NewTransaction(Transaction),
+}
 
 #[derive(NetworkBehaviour)]
 struct VeloraBehaviour {
@@ -27,12 +33,19 @@ struct VeloraBehaviour {
 
 pub struct Network {
     swarm: libp2p::Swarm<VeloraBehaviour>,
+    block_sender: mpsc::UnboundedSender<Block>,
+    tx_sender: mpsc::UnboundedSender<Transaction>,
 }
 
 impl Network {
-    pub async fn new(port: u16) -> Result<Self> {
+    pub async fn new(
+        port: u16,
+        block_sender: mpsc::UnboundedSender<Block>,
+        tx_sender: mpsc::UnboundedSender<Transaction>
+    ) -> Result<Self> {
         let id_keys = identity::Keypair::generate_ed25519();
         let local_peer_id = PeerId::from(id_keys.public());
+        info!("Local peer id: {}", local_peer_id);
 
         let transport = tcp::tokio::Transport::new(tcp::Config::default().nodelay(true))
             .upgrade(upgrade::Version::V1)
@@ -50,7 +63,7 @@ impl Network {
             gossipsub_config,
         )?;
 
-        let topic = gossipsub::IdentTopic::new("velora-blocks");
+        let topic = gossipsub::IdentTopic::new("velora-chain");
         gossipsub.subscribe(&topic)?;
 
         let mdns = mdns::tokio::Behaviour::new(mdns::Config::default(), local_peer_id)?;
@@ -61,16 +74,58 @@ impl Network {
         let listen_addr: Multiaddr = format!("/ip4/0.0.0.0/tcp/{}", port).parse()?;
         swarm.listen_on(listen_addr)?;
 
-        Ok(Self { swarm })
+        Ok(Self { swarm, block_sender, tx_sender })
     }
 
     pub async fn run(&mut self) {
         loop {
             select! {
-                event = self.swarm.select_next_some() => {
-                    // Handle swarm events
+                event = self.swarm.select_next_some() => match event {
+                    SwarmEvent::NewListenAddr { address, .. } => {
+                        info!("Listening on {}", address);
+                    }
+                    SwarmEvent::Behaviour(VeloraBehaviourEvent::Mdns(mdns::Event::Discovered(list))) => {
+                        for (peer_id, _multiaddr) in list {
+                            self.swarm.behaviour_mut().gossipsub.add_explicit_peer(&peer_id);
+                        }
+                    }
+                    SwarmEvent::Behaviour(VeloraBehaviourEvent::Gossipsub(gossipsub::Event::Message {
+                        propagation_source: _peer_id,
+                        message_id: _id,
+                        message,
+                    })) => {
+                        if let Ok(msg) = bincode::deserialize::<GossipMessage>(&message.data) {
+                            match msg {
+                                GossipMessage::NewBlock(block) => {
+                                    if let Err(e) = self.block_sender.send(block) {
+                                        warn!("Failed to send block to consensus: {}", e);
+                                    }
+                                }
+                                GossipMessage::NewTransaction(tx) => {
+                                    if let Err(e) = self.tx_sender.send(tx) {
+                                        warn!("Failed to send transaction to txpool: {}", e);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
                 }
             }
         }
+    }
+
+    pub fn broadcast_block(&mut self, block: &Block) -> Result<()> {
+        let topic = gossipsub::IdentTopic::new("velora-chain");
+        let msg = bincode::serialize(&GossipMessage::NewBlock(block.clone()))?;
+        self.swarm.behaviour_mut().gossipsub.publish(topic, msg)?;
+        Ok(())
+    }
+
+    pub fn broadcast_transaction(&mut self, tx: &Transaction) -> Result<()> {
+        let topic = gossipsub::IdentTopic::new("velora-chain");
+        let msg = bincode::serialize(&GossipMessage::NewTransaction(tx.clone()))?;
+        self.swarm.behaviour_mut().gossipsub.publish(topic, msg)?;
+        Ok(())
     }
 }
