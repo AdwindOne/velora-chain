@@ -2,7 +2,7 @@ use crate::types::{Address, U256, H256, Nonce};
 use rlp::{RlpStream, Encodable, Decodable};
 use serde::{Deserialize, Serialize};
 use sha3::{Keccak256, Digest};
-use ethers::types::Signature;
+use ethers::types::{Signature, transaction::eip2718::TypedTransaction, Transaction as EthersTransaction};
 use std::str::FromStr;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Encodable, Decodable)]
@@ -52,13 +52,9 @@ impl Transaction {
         H256::from_slice(Keccak256::digest(stream.as_raw()).as_slice())
     }
 
-    pub fn recover_from(&self) -> Result<Address, anyhow::Error> {
-        let sig = Signature {
-            v: self.v.as_u64(),
-            r: self.r.into(),
-            s: self.s.into(),
-        };
-        let recovered = sig.recover(self.hash())?;
-        Ok(recovered)
+    pub fn recover_from(raw_tx: &[u8]) -> Result<Address, anyhow::Error> {
+        let typed_tx: TypedTransaction = rlp::decode(raw_tx)?;
+        let from = typed_tx.recover()?;
+        Ok(from)
     }
 }
