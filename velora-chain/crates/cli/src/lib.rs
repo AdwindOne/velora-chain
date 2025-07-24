@@ -92,6 +92,7 @@ struct App {
     tx_pool: Arc<Mutex<HashMap<Address, Vec<Transaction>>>>,
 }
 
+//noinspection ALL
 pub async fn run_node(args: RunArgs) -> Result<()> {
     let genesis_path = args.datadir.join("genesis.json");
     let db_path = args.datadir.join("db");
@@ -239,8 +240,8 @@ async fn create_and_process_block(app: Arc<App>, block_interval_secs: u64) -> Re
         txs.drain(0..i);
     }
     header.transactions_root = calculate_transactions_root(&block_txs);
-    header.state_root = velora_core::H256::zero();
-    header.receipts_root = velora_core::H256::zero();
+    header.state_root = H256::zero();
+    header.receipts_root = H256::zero();
     header.logs_bloom = velora_core::Bloom::default();
     header.difficulty = velora_core::U256::one();
     header.gas_limit = 30_000_000;
@@ -248,7 +249,7 @@ async fn create_and_process_block(app: Arc<App>, block_interval_secs: u64) -> Re
     header.mix_hash = H256::from_low_u64_be(header.timestamp);
     header.nonce = H256::from_low_u64_be(header.number);
     header.extra_data = header.timestamp.to_be_bytes().to_vec();
-    header.ommers_hash = velora_core::H256::zero();
+    header.ommers_hash = H256::zero();
     let mut block = Block {
         header,
         transactions: block_txs,
@@ -275,16 +276,16 @@ async fn create_and_process_block(app: Arc<App>, block_interval_secs: u64) -> Re
     Ok(())
 }
 
-fn calculate_transactions_root(txs: &[Transaction]) -> velora_core::H256 {
+fn calculate_transactions_root(txs: &[Transaction]) -> H256 {
     // Placeholder. A real implementation would build a Merkle Trie.
     if txs.is_empty() {
-        return velora_core::H256::zero();
+        return H256::zero();
     }
     let mut hasher = sha3::Keccak256::new();
     for tx in txs {
         hasher.update(tx.hash.as_bytes());
     }
-    velora_core::H256::from_slice(&hasher.finalize())
+    H256::from_slice(&hasher.finalize())
 }
 
 pub fn init_node(args: InitArgs) -> Result<()> {
@@ -304,7 +305,7 @@ pub async fn main_entry(args: Args) -> Result<()> {
         Commands::Init(init_args) => init_node(init_args)?,
         Commands::ChainId => {
             let genesis_path = std::path::Path::new("configs/devnet/genesis.json");
-            let genesis: serde_json::Value = std::fs::read_to_string(genesis_path)
+            let genesis: serde_json::Value = fs::read_to_string(genesis_path)
                 .ok()
                 .and_then(|s| serde_json::from_str(&s).ok())
                 .ok_or_else(|| anyhow::anyhow!("Failed to read genesis.json for chain_id"))?;
