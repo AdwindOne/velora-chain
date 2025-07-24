@@ -1,10 +1,11 @@
 use crate::types::{Address, BlockNumber, H256, U256, Bloom};
 use crate::transaction::Transaction;
-use rlp::{RlpStream, Encodable, Decodable, Rlp};
+use rlp::{RlpStream, Encodable};
+use rlp_derive::{RlpEncodable, RlpDecodable};
 use serde::{Deserialize, Serialize};
 use sha3::{Keccak256, Digest};
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Encodable, Decodable)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, RlpEncodable, RlpDecodable)]
 pub struct BlockHeader {
     pub parent_hash: H256,
     pub ommers_hash: H256,

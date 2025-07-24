@@ -1,11 +1,11 @@
 use crate::types::{Address, U256, H256, Nonce};
-use rlp::{RlpStream, Encodable, Decodable};
+use rlp::{RlpStream, Encodable};
+use rlp_derive::{RlpEncodable, RlpDecodable};
 use serde::{Deserialize, Serialize};
 use sha3::{Keccak256, Digest};
-use ethers::types::{Signature, transaction::eip2718::TypedTransaction, Transaction as EthersTransaction};
-use std::str::FromStr;
+use ethers::types::transaction::eip2718::TypedTransaction;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Encodable, Decodable)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, RlpEncodable, RlpDecodable)]
 pub struct Transaction {
     pub nonce: Nonce,
     pub gas_price: U256,
@@ -16,7 +16,9 @@ pub struct Transaction {
     pub v: U256,
     pub r: U256,
     pub s: U256,
+    #[serde(skip)]
     pub from: Option<Address>,
+    #[serde(skip)]
     pub hash: H256,
 }
 
