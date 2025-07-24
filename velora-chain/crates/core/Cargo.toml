@@ -12,7 +12,6 @@ ethers = { workspace = true }
 # Serialization / Deserialization
 serde = { workspace = true, features = ["derive"] }
 rlp = { workspace = true }
-rlp-derive = "0.1"
 hex = { workspace = true }
 
 # Hashing

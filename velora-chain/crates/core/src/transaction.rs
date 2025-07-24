@@ -1,12 +1,10 @@
 use crate::types::{Address, U256, H256, Nonce};
-use rlp::RlpStream;
-use rlp_derive::{RlpEncodable, RlpDecodable};
+use rlp::{RlpStream, Encodable, Decodable, Rlp, DecoderError};
 use serde::{Deserialize, Serialize};
 use sha3::{Keccak256, Digest};
-use ethers::types::transaction::eip2718::TypedTransaction;
-use rlp::Encodable;
+use ethers::types::{transaction::eip2718::TypedTransaction, Signature, Eip1559TransactionRequest};
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, RlpEncodable, RlpDecodable)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Transaction {
     pub nonce: Nonce,
     pub gas_price: U256,
@@ -21,6 +19,43 @@ pub struct Transaction {
     pub from: Option<Address>,
     #[serde(skip)]
     pub hash: H256,
+}
+
+impl Encodable for Transaction {
+    fn rlp_append(&self, s: &mut RlpStream) {
+        s.begin_list(9);
+        s.append(&self.nonce);
+        s.append(&self.gas_price);
+        s.append(&self.gas_limit);
+        if let Some(to) = self.to {
+            s.append(&to);
+        } else {
+            s.append(&"");
+        }
+        s.append(&self.value);
+        s.append(&self.data);
+        s.append(&self.v);
+        s.append(&self.r);
+        s.append(&self.s);
+    }
+}
+
+impl Decodable for Transaction {
+    fn decode(rlp: &Rlp) -> Result<Self, DecoderError> {
+        Ok(Self {
+            nonce: rlp.val_at(0)?,
+            gas_price: rlp.val_at(1)?,
+            gas_limit: rlp.val_at(2)?,
+            to: rlp.val_at(3)?,
+            value: rlp.val_at(4)?,
+            data: rlp.val_at(5)?,
+            v: rlp.val_at(6)?,
+            r: rlp.val_at(7)?,
+            s: rlp.val_at(8)?,
+            from: None,
+            hash: H256::zero(),
+        })
+    }
 }
 
 impl Transaction {
@@ -58,7 +93,11 @@ impl Transaction {
     pub fn recover_from(raw_tx: &[u8]) -> Result<Address, anyhow::Error> {
         let typed_tx: TypedTransaction = rlp::decode(raw_tx)?;
         let sighash = typed_tx.sighash();
-        let sig = typed_tx.signature();
+        let sig = match typed_tx {
+            TypedTransaction::Eip1559(tx) => tx.signature(),
+            TypedTransaction::Legacy(tx) => tx.signature(),
+            _ => return Err(anyhow::anyhow!("Unsupported transaction type")),
+        };
         let from = sig.recover(sighash)?;
         Ok(from)
     }
