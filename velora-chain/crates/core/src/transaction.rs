@@ -1,9 +1,10 @@
 use crate::types::{Address, U256, H256, Nonce};
-use rlp::{RlpStream, Encodable};
+use rlp::RlpStream;
 use rlp_derive::{RlpEncodable, RlpDecodable};
 use serde::{Deserialize, Serialize};
 use sha3::{Keccak256, Digest};
 use ethers::types::transaction::eip2718::TypedTransaction;
+use rlp::Encodable;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, RlpEncodable, RlpDecodable)]
 pub struct Transaction {
@@ -56,7 +57,9 @@ impl Transaction {
 
     pub fn recover_from(raw_tx: &[u8]) -> Result<Address, anyhow::Error> {
         let typed_tx: TypedTransaction = rlp::decode(raw_tx)?;
-        let from = typed_tx.recover()?;
+        let sighash = typed_tx.sighash();
+        let sig = typed_tx.signature();
+        let from = sig.recover(sighash)?;
         Ok(from)
     }
 }
