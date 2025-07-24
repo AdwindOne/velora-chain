@@ -20,6 +20,7 @@ velora-executor = { path = "../executor" }
 velora-network = { path = "../network" }
 velora-rpc = { path = "../rpc" }
 velora-utils = { path = "../utils" }
+revm = { workspace = true }
 
 # Async
 tokio = { workspace = true, features = ["full"] }

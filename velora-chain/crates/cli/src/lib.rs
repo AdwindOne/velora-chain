@@ -16,6 +16,9 @@ use velora_core::{Block, Transaction};
 use velora_executor::Executor;
 use velora_network::Network;
 use velora_rpc::{run_server, RpcContext};
+use std::collections::HashMap;
+use revm::db::DatabaseRef;
+use revm::primitives::alloy_primitives::Address as RevmAddress;
 
 /// Velora-chain: A modular, high-performance Rust blockchain for EVM-compatible smart contracts.
 #[derive(Parser, Debug)]
@@ -82,7 +85,7 @@ struct App {
     executor: Arc<Executor>,
     network: Arc<Mutex<Network>>,
     consensus: Arc<dyn Consensus>,
-    tx_pool: Arc<Mutex<Vec<Transaction>>>,
+    tx_pool: Arc<Mutex<HashMap<Address, Vec<Transaction>>>>,
 }
 
 pub async fn run_node(args: RunArgs) -> Result<()> {
@@ -131,7 +134,7 @@ pub async fn run_node(args: RunArgs) -> Result<()> {
         executor: executor.clone(),
         network: network.clone(),
         consensus: Arc::new(Poa::new(validators)),
-        tx_pool: Arc::new(Mutex::new(Vec::new())),
+        tx_pool: Arc::new(Mutex::new(HashMap::new())),
     });
 
     let mut block_time = interval(Duration::from_millis(args.block_time));
@@ -161,7 +164,18 @@ pub async fn run_node(args: RunArgs) -> Result<()> {
             },
             Some(tx) = tx_receiver.recv() => {
                 info!("Received new transaction from network or RPC");
-                app.tx_pool.lock().await.push(tx);
+                // Nonce校验和分组入池
+                let mut pool = app.tx_pool.lock().await;
+                let entry = pool.entry(tx.from.unwrap_or_default()).or_insert_with(Vec::new);
+                // 获取链上nonce
+                let chain_nonce = app.executor.basic_ref(RevmAddress::from_slice(tx.from.unwrap_or_default().as_bytes()))
+                    .ok().flatten().map(|acc| acc.nonce).unwrap_or(0);
+                let expected_nonce = chain_nonce + entry.len() as u64;
+                if tx.nonce == expected_nonce {
+                    entry.push(tx);
+                } else {
+                    warn!("Rejected tx: invalid nonce (got {}, expected {})", tx.nonce, expected_nonce);
+                }
             },
             _ = tokio::signal::ctrl_c() => {
                 info!("Shutting down...");
@@ -178,25 +192,38 @@ pub async fn run_node(args: RunArgs) -> Result<()> {
 async fn create_and_process_block(app: Arc<App>) -> Result<()> {
     let parent = app.executor.get_latest_block()?;
     let mut header = app.consensus.prepare_header(&parent.header).await?;
-
-    let mut txs = app.tx_pool.lock().await;
-    let block_txs = txs.drain(..).collect::<Vec<_>>();
-
+    let mut pool = app.tx_pool.lock().await;
+    let mut block_txs = Vec::new();
+    // 只打包 nonce 连续的交易
+    for (from, txs) in pool.iter_mut() {
+        // 获取链上nonce
+        let chain_nonce = app.executor.basic_ref(RevmAddress::from_slice((*from).as_bytes()))
+            .ok().flatten().map(|acc| acc.nonce).unwrap_or(0);
+        let mut expected_nonce = chain_nonce;
+        txs.sort_by_key(|tx| tx.nonce);
+        let mut i = 0;
+        while i < txs.len() {
+            if txs[i].nonce == expected_nonce {
+                block_txs.push(txs[i].clone());
+                expected_nonce += 1;
+                i += 1;
+            } else {
+                break;
+            }
+        }
+        // 移除已打包的交易
+        txs.drain(0..i);
+    }
     header.transactions_root = calculate_transactions_root(&block_txs);
-
     let mut block = Block {
         header,
         transactions: block_txs,
         ommers: vec![],
     };
-
     app.consensus.finalize_block(&mut block).await?;
     app.executor.apply_block(&block)?;
-
     info!("Produced new block {}", block.header.number);
-
     app.network.lock().await.broadcast_block(&block)?;
-
     Ok(())
 }
 
